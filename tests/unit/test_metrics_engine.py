@@ -172,9 +172,7 @@ def test_metrics_engine_computes_independent_metrics_per_device() -> None:
 
     engine = MetricsEngine(MetricConfig(active_rpm_threshold=500))
     results = engine.compute(dataset)
-    by_device = {
-        (r.device_id, r.metric_name): r.metric_value for r in results
-    }
+    by_device = {(r.device_id, r.metric_name): r.metric_value for r in results}
 
     assert by_device[("device-1", "average_pressure_bar")] == 9.0
     assert by_device[("device-2", "average_pressure_bar")] == 5.0

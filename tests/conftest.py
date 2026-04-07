@@ -72,9 +72,7 @@ def _create_test_sensor_db(db_path: Path) -> None:
                         (ts, TEST_STATION_ID, device_id, discharge_p, flow, power, rpm, temp)
                     )
 
-        conn.executemany(
-            "INSERT INTO sensor_readings VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows
-        )
+        conn.executemany("INSERT INTO sensor_readings VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows)
         conn.commit()
 
 

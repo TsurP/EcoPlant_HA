@@ -1,0 +1,56 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "air-platform"
+version = "0.1.0"
+description = "Reusable compressed-air sensor ingestion library and metrics API service."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "fastapi>=0.116,<1.0",
+  "pandas>=2.2,<3.0",
+  "pydantic>=2.11,<3.0",
+  "pydantic-settings>=2.6,<3.0",
+  "uvicorn>=0.34,<1.0",
+]
+
+[dependency-groups]
+dev = [
+  "httpx>=0.28,<1.0",
+  "mypy>=1.15,<2.0",
+  "pandas-stubs>=2.2.3.250308,<3.0",
+  "pytest>=8.3,<9.0",
+  "ruff>=0.11,<1.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/air_platform"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "UP"]
+ignore = ["B008"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_ignores = true
+show_error_codes = true
+pretty = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false

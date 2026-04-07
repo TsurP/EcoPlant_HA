@@ -38,7 +38,7 @@ import sqlite3
 import threading
 import time
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -163,9 +163,7 @@ class SensorEventProducer:
         conn.row_factory = sqlite3.Row
         try:
             cursor = conn.cursor()
-            cursor.execute(
-                "SELECT * FROM sensor_readings ORDER BY timestamp ASC"
-            )
+            cursor.execute("SELECT * FROM sensor_readings ORDER BY timestamp ASC")
 
             prev_timestamp: datetime | None = None
             batch: list[dict[str, Any]] = []
@@ -240,7 +238,7 @@ class SensorEventProducer:
             readings=readings,
             metadata={
                 "source": "producer_v1",
-                "produced_at": datetime.now(timezone.utc).isoformat(),
+                "produced_at": datetime.now(UTC).isoformat(),
             },
         )
         return event.to_dict()

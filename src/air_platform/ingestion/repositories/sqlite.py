@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from air_platform.errors import StorageError
 from air_platform.ingestion.models import StationMetadata
 
 
@@ -45,8 +46,11 @@ class SQLiteSensorDataRepository:
             parameters.append(end_time.isoformat())
         query += " ORDER BY device_id, timestamp"
 
-        with sqlite3.connect(self.db_path) as connection:
-            return pd.read_sql_query(query, connection, params=tuple(parameters))
+        try:
+            with sqlite3.connect(self.db_path) as connection:
+                return pd.read_sql_query(query, connection, params=tuple(parameters))
+        except sqlite3.Error as exc:
+            raise StorageError(f"Failed to fetch sensor readings for station {station_id}") from exc
 
     def fetch_station_metadata(self, station_id: str) -> StationMetadata | None:
         query = """
@@ -59,9 +63,14 @@ class SQLiteSensorDataRepository:
             FROM station_metadata
             WHERE station_id = ?
         """
-        with sqlite3.connect(self.db_path) as connection:
-            connection.row_factory = sqlite3.Row
-            row = connection.execute(query, (station_id,)).fetchone()
+        try:
+            with sqlite3.connect(self.db_path) as connection:
+                connection.row_factory = sqlite3.Row
+                row = connection.execute(query, (station_id,)).fetchone()
+        except sqlite3.Error as exc:
+            raise StorageError(
+                f"Failed to fetch station metadata for station {station_id}"
+            ) from exc
 
         if row is None:
             return None

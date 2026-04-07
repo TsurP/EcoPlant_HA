@@ -19,3 +19,23 @@ class DataNotFoundError(AirPlatformError):
 
 class StorageError(AirPlatformError):
     """Raised when metrics storage fails."""
+
+
+class LLMError(AirPlatformError):
+    """Base error for LLM provider failures."""
+
+
+class LLMProviderError(LLMError):
+    """Raised for provider-side errors (bad status, rate limit, etc.)."""
+
+
+class LLMTimeoutError(LLMError):
+    """Raised when an LLM call exceeds its timeout budget."""
+
+
+class LLMNotConfiguredError(LLMError):
+    """Raised when required LLM credentials are absent."""
+
+
+class LLMStructuredOutputError(LLMError):
+    """Raised when structured output from the LLM fails validation."""

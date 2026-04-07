@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from pathlib import Path
 
 import pytest
 
 from air_platform.config import AppSettings
+from air_platform.llm.openai_provider import OpenAIProvider
 from tests.constants import SCHEMA_PATH, TEST_STATION_ID
 
 _DEVICES = [
@@ -15,6 +17,15 @@ _DEVICES = [
     "6628f4e0-b9b3-6ffe-92d0-6a09ff9dcc26",
     "7739e5f1-cac4-70ff-a3e1-7b1a000edd37",
 ]
+_OPENAI_API_KEY_ENV_VARS = ("AIR_PLATFORM_OPENAI_API_KEY", "OPENAI_API_KEY")
+
+
+def _find_openai_api_key() -> str | None:
+    for env_var in _OPENAI_API_KEY_ENV_VARS:
+        api_key = os.getenv(env_var)
+        if api_key:
+            return api_key
+    return None
 
 
 def _create_test_sensor_db(db_path: Path) -> None:
@@ -100,4 +111,22 @@ def app_settings(test_sensor_db: Path, tmp_path: Path) -> AppSettings:
         default_flatline_window_minutes=30,
         active_rpm_threshold=500,
         specific_power_flow_threshold=1.0,
+    )
+
+
+@pytest.fixture(scope="session")
+def openai_api_key() -> str:
+    api_key = _find_openai_api_key()
+    if not api_key:
+        pytest.skip("Skipped: AIR_PLATFORM_OPENAI_API_KEY or OPENAI_API_KEY not set.")
+    return api_key
+
+
+@pytest.fixture(scope="session")
+def live_openai_provider(openai_api_key: str) -> OpenAIProvider:
+    return OpenAIProvider(
+        api_key=openai_api_key,
+        model=os.getenv("AIR_PLATFORM_OPENAI_MODEL", "gpt-4o-mini"),
+        timeout_seconds=30.0,
+        max_retries=2,
     )

@@ -7,6 +7,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 from air_platform.ingestion.models import MissingStrategy, QualityReport
+from air_platform.llm.use_cases import DQReportResult, NLQueryResult, StationSummaryResult
 from air_platform.metrics.models import MetricResult
 from air_platform.service.orchestrator import StationProcessingSummary
 
@@ -131,3 +132,155 @@ class HealthResponse(BaseModel):
     """Health endpoint payload."""
 
     status: str = "ok"
+
+
+# ---------------------------------------------------------------------------
+# LLM endpoint schemas
+# ---------------------------------------------------------------------------
+
+
+class StationSummaryRequest(BaseModel):
+    """Optional time window for the station health summary endpoint."""
+
+    start_time: datetime | None = None
+    end_time: datetime | None = None
+
+
+class MetricSnapshotItem(BaseModel):
+    """Single metric entry returned alongside a generated summary."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    station_id: str
+    device_id: str
+    metric_name: str
+    metric_value: float
+    unit: str
+    window_start: datetime
+    window_end: datetime
+
+    @classmethod
+    def from_domain(cls, metric: MetricResult) -> MetricSnapshotItem:
+        return cls.model_validate(metric)
+
+
+class StationSummaryResponse(BaseModel):
+    """Response for the station health summary endpoint."""
+
+    station_id: str
+    start_time: datetime | None
+    end_time: datetime | None
+    summary: str | None
+    metrics: list[MetricSnapshotItem]
+    llm_failed: bool = False
+    warning: str | None = None
+
+    @classmethod
+    def from_result(cls, result: StationSummaryResult) -> StationSummaryResponse:
+        return cls(
+            station_id=result.station_id,
+            start_time=result.start_time,
+            end_time=result.end_time,
+            summary=result.summary,
+            metrics=[MetricSnapshotItem.from_domain(m) for m in result.metrics],
+            llm_failed=result.llm_failed,
+            warning=result.warning,
+        )
+
+
+class NLQueryRequest(BaseModel):
+    """Request body for the natural-language query endpoint."""
+
+    question: str = Field(..., min_length=1, description="Plain-English question about metrics.")
+
+
+class ParsedQueryResponse(BaseModel):
+    """Serialised StructuredMetricQuery returned with the NL query response."""
+
+    station_id: str | None
+    device_id: str | None
+    metric_name: str | None
+    aggregation: str
+    start_time: str | None
+    end_time: str | None
+    needs_clarification: bool
+    clarification_message: str | None
+
+
+class NLQueryResponse(BaseModel):
+    """Response for the natural-language query endpoint."""
+
+    original_question: str
+    parsed_query: ParsedQueryResponse
+    metric_results: list[MetricSnapshotItem]
+    aggregate_value: float | None
+    natural_language_answer: str | None
+    llm_rendering_failed: bool = False
+    warning: str | None = None
+
+    @classmethod
+    def from_result(cls, result: NLQueryResult) -> NLQueryResponse:
+        pq = result.parsed_query
+        return cls(
+            original_question=result.original_question,
+            parsed_query=ParsedQueryResponse(
+                station_id=pq.station_id,
+                device_id=pq.device_id,
+                metric_name=pq.metric_name,
+                aggregation=pq.aggregation,
+                start_time=pq.start_time,
+                end_time=pq.end_time,
+                needs_clarification=pq.needs_clarification,
+                clarification_message=pq.clarification_message,
+            ),
+            metric_results=[MetricSnapshotItem.from_domain(m) for m in result.metric_results],
+            aggregate_value=result.aggregate_value,
+            natural_language_answer=result.natural_language_answer,
+            llm_rendering_failed=result.llm_rendering_failed,
+            warning=result.warning,
+        )
+
+
+class DQReportRequest(BaseModel):
+    """Optional time window for the data quality report endpoint."""
+
+    start_time: datetime | None = None
+    end_time: datetime | None = None
+
+
+class DQReportResponse(BaseModel):
+    """Response for the data quality report endpoint."""
+
+    station_id: str
+    start_time: datetime | None
+    end_time: datetime | None
+    report: str | None
+    total_rows_read: int
+    total_rows_after_cleaning: int
+    column_missing_pct: dict[str, float]
+    out_of_range_counts: dict[str, int]
+    malformed_value_counts: dict[str, int]
+    gap_count: int
+    flatline_count: int
+    warnings: list[str]
+    llm_failed: bool = False
+    llm_warning: str | None = None
+
+    @classmethod
+    def from_result(cls, result: DQReportResult) -> DQReportResponse:
+        return cls(
+            station_id=result.station_id,
+            start_time=result.start_time,
+            end_time=result.end_time,
+            report=result.report,
+            total_rows_read=result.total_rows_read,
+            total_rows_after_cleaning=result.total_rows_after_cleaning,
+            column_missing_pct=result.column_missing_pct,
+            out_of_range_counts=result.out_of_range_counts,
+            malformed_value_counts=result.malformed_value_counts,
+            gap_count=result.gap_count,
+            flatline_count=result.flatline_count,
+            warnings=result.warnings,
+            llm_failed=result.llm_failed,
+            llm_warning=result.llm_warning,
+        )

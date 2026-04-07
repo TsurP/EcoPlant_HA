@@ -6,6 +6,7 @@ from collections.abc import Sequence
 
 import pandas as pd
 
+from air_platform.ingestion._utils import coerce_timestamps
 from air_platform.ingestion.models import FlatlineIssue, GapIssue
 
 
@@ -34,7 +35,7 @@ def detect_timestamp_gaps(dataframe: pd.DataFrame) -> list[GapIssue]:
 
     for device_id, group in dataframe.dropna(subset=["timestamp"]).groupby("device_id"):
         ordered = group.sort_values("timestamp").reset_index(drop=True)
-        timestamps = _coerce_timestamps(ordered["timestamp"].tolist())
+        timestamps = coerce_timestamps(ordered["timestamp"].tolist(), skip_nat=True)
         expected_interval = infer_expected_interval(timestamps)
         if expected_interval is None:
             continue
@@ -74,7 +75,8 @@ def infer_expected_interval(timestamps: Sequence[pd.Timestamp]) -> pd.Timedelta 
     counts: dict[pd.Timedelta, int] = {}
     for diff in diffs:
         counts[diff] = counts.get(diff, 0) + 1
-    return max(counts.items(), key=lambda item: item[1])[0]
+    # Break ties by preferring the shorter interval (more conservative gap detection).
+    return max(counts.items(), key=lambda item: (item[1], -item[0].total_seconds()))[0]
 
 
 def detect_flatlines(
@@ -121,12 +123,3 @@ def detect_flatlines(
                 )
 
     return issues
-
-
-def _coerce_timestamps(values: Sequence[object]) -> list[pd.Timestamp]:
-    timestamps: list[pd.Timestamp] = []
-    for value in values:
-        coerced = pd.Timestamp(str(value))
-        if not pd.isna(coerced):
-            timestamps.append(coerced)
-    return timestamps

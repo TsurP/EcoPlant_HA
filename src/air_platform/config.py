@@ -20,4 +20,10 @@ class AppSettings(BaseSettings):
     active_rpm_threshold: int = 500
     specific_power_flow_threshold: float = 1.0
 
+    # LLM / OpenAI settings
+    openai_api_key: str | None = None
+    openai_model: str = "gpt-4o-mini"
+    openai_timeout_seconds: float = 30.0
+    openai_max_retries: int = 3
+
     model_config = SettingsConfigDict(env_prefix="AIR_PLATFORM_", extra="ignore")

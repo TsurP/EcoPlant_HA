@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 import pandas as pd
 
+from air_platform.ingestion._utils import coerce_timestamps
 from air_platform.ingestion.models import ProcessedDataset
 from air_platform.metrics.definitions import METRIC_DEFINITIONS
 from air_platform.metrics.models import MetricConfig, MetricResult
@@ -27,7 +28,7 @@ class MetricsEngine:
             if ordered.empty:
                 continue
 
-            timestamps = _coerce_timestamps(ordered["timestamp"].tolist())
+            timestamps = coerce_timestamps(ordered["timestamp"].tolist())
             interval_hours = _infer_interval_hours(
                 timestamps,
                 dataset.resample_frequency,
@@ -106,7 +107,3 @@ def _count_cycles(active_mask: pd.Series) -> int:
     previous = active_mask.shift(1)
     transitions = active_mask & previous.eq(False)
     return int(transitions.sum())
-
-
-def _coerce_timestamps(values: Sequence[object]) -> list[pd.Timestamp]:
-    return [pd.Timestamp(str(value)) for value in values]

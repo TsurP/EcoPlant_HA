@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
   "fastapi>=0.116,<1.0",
+  "openai>=1.60,<2.0",
   "pandas>=2.2,<3.0",
   "pydantic>=2.11,<3.0",
   "pydantic-settings>=2.6,<3.0",
@@ -43,6 +44,9 @@ indent-style = "space"
 [tool.pytest.ini_options]
 addopts = "-ra"
 testpaths = ["tests"]
+markers = [
+  "openai_live: requires a live OpenAI API key",
+]
 
 [tool.mypy]
 python_version = "3.12"

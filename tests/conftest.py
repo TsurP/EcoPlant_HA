@@ -68,7 +68,9 @@ def _create_test_sensor_db(db_path: Path) -> None:
                     discharge_p: float | None = pressure
                     if hour == 6 and minute == 0 and i == 0:
                         discharge_p = None
-                    rows.append((ts, TEST_STATION_ID, device_id, discharge_p, flow, power, rpm, temp))
+                    rows.append(
+                        (ts, TEST_STATION_ID, device_id, discharge_p, flow, power, rpm, temp)
+                    )
 
         conn.executemany(
             "INSERT INTO sensor_readings VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows

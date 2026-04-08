@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+import pandas as pd
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from air_platform.ingestion.models import MissingStrategy, QualityReport
 from air_platform.llm.use_cases import DQReportResult, NLQueryResult, StationSummaryResult
@@ -25,6 +26,29 @@ class ProcessStationRequest(BaseModel):
     flatline_window_minutes: int | None = Field(default=None, ge=1)
     active_rpm_threshold: int | None = Field(default=None, ge=0)
     specific_power_flow_threshold: float | None = Field(default=None, ge=0.0)
+
+    @field_validator("resample_frequency")
+    @classmethod
+    def validate_resample_frequency(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        try:
+            offset = pd.tseries.frequencies.to_offset(v)
+        except ValueError:
+            offset = None
+        if offset is None:
+            raise ValueError(
+                f"Invalid resample_frequency {v!r}. "
+                "Use a pandas offset string such as '1min', '5min', '15min', '1h', '1D'."
+            )
+        return v
+
+    @model_validator(mode="after")
+    def validate_time_range_order(self) -> ProcessStationRequest:
+        if self.start_time is not None and self.end_time is not None:
+            if self.start_time >= self.end_time:
+                raise ValueError("start_time must be strictly before end_time")
+        return self
 
 
 class GapIssueResponse(BaseModel):

@@ -35,12 +35,27 @@ class InMemoryQueueTransport:
             raw = self._queue.get(block=False)
         except queue.Empty:
             return None
+        return self._wrap(raw)
 
+    def receive_blocking(self, timeout_s: float) -> TransportMessage | None:
+        """Block up to *timeout_s* seconds for the next message.
+
+        Returns the message (or ``None`` sentinel acknowledgement) once one
+        arrives, or ``None`` if the timeout expires before any message appears.
+        Using this instead of ``receive()`` + ``time.sleep()`` eliminates
+        busy-poll CPU churn when the queue is idle.
+        """
+        try:
+            raw = self._queue.get(block=True, timeout=timeout_s)
+        except queue.Empty:
+            return None
+        return self._wrap(raw)
+
+    def _wrap(self, raw: dict[str, Any] | None) -> TransportMessage | None:
+        """Convert a raw queue item to a TransportMessage, handling the sentinel."""
         if raw is None:
-            # Sentinel: producer finished. Signal stream end to the consumer.
             self._sentinel_received = True
             return None
-
         event_id = str(raw.get("event_id", ""))
         return TransportMessage(id=event_id, payload=raw)
 

@@ -208,7 +208,27 @@ class AnswerNLQueryUseCase:
                 warning=parsed.clarification_message,
             )
 
-        # Step 3: reject vague parses that would produce meaningless cross-metric aggregates.
+        # Step 3a: reject queries with no station — querying all stations is too broad and
+        # contradicts the documented behaviour that no-station questions should request
+        # clarification rather than silently broadening the result set.
+        if parsed.station_id is None:
+            clarification = StructuredMetricQuery(
+                needs_clarification=True,
+                clarification_message=(
+                    "Please specify a station in your question "
+                    "(e.g. 'for station X' or 'at station Y')."
+                ),
+            )
+            return NLQueryResult(
+                original_question=question,
+                parsed_query=clarification,
+                metric_results=[],
+                aggregate_value=None,
+                natural_language_answer=None,
+                warning=clarification.clarification_message,
+            )
+
+        # Step 3b: reject vague parses that would produce meaningless cross-metric aggregates.
         # metric_name must be present — aggregating different metric types (e.g. pressure + RPM)
         # into a single number is nonsensical regardless of which station is requested.
         if parsed.metric_name is None:

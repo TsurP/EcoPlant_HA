@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import queue
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -22,8 +24,19 @@ from air_platform.errors import (
 from air_platform.service.routes import router
 
 
-def create_app(settings: AppSettings | None = None) -> FastAPI:
-    """Create the FastAPI application."""
+def create_app(
+    settings: AppSettings | None = None,
+    event_queue: queue.Queue[dict[str, Any] | None] | None = None,
+) -> FastAPI:
+    """Create the FastAPI application.
+
+    Args:
+        settings: Optional settings override (defaults to ``AppSettings()``).
+        event_queue: Optional pre-created ``queue.Queue`` shared with a
+            producer running in the same process.  See ``run_with_producer.py``.
+            When *None*, the container creates its own private queue (the
+            default for the standalone server with no producer wired in).
+    """
 
     resolved_settings = settings or AppSettings()
 
@@ -32,6 +45,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         container = AppContainer.build(
             resolved_settings.sensor_schema_path,
             consumer_error_cap=resolved_settings.consumer_error_cap,
+            event_queue=event_queue,
         )
         _app.state.container = container
         container.start_consumer()

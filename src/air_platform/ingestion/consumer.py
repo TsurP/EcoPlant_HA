@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -33,7 +32,7 @@ from air_platform.transport.base import MessageTransport, TransportMessage
 
 _logger = logging.getLogger(__name__)
 
-_POLL_INTERVAL_SECONDS = 0.01  # Sleep between empty-queue polls
+_BLOCKING_RECEIVE_TIMEOUT_S = 1.0  # Blocking receive timeout; keeps stop() responsive
 
 
 class ConsumerRunner:
@@ -88,14 +87,20 @@ class ConsumerRunner:
         _logger.info("Consumer loop stopped.")
 
     def run_loop(self) -> None:
-        """Main consume loop: runs until stop() is called or end-of-stream sentinel received."""
+        """Main consume loop: runs until stop() is called or end-of-stream sentinel received.
+
+        Uses ``receive_blocking`` with a 1-second timeout instead of
+        ``receive`` + ``sleep``.  This eliminates the 10 ms busy-poll CPU
+        wakeup churn when no events are being produced while still allowing
+        ``stop()`` to interrupt the loop within ~1 second.
+        """
         while not self._stop_event.is_set():
-            msg = self._transport.receive()
+            msg = self._transport.receive_blocking(_BLOCKING_RECEIVE_TIMEOUT_S)
             if msg is None:
                 if self._transport.sentinel_received:
                     # Producer finished; no more messages will arrive — exit cleanly.
                     break
-                time.sleep(_POLL_INTERVAL_SECONDS)
+                # Timeout expired with no message — check stop_event and wait again.
                 continue
             self._process_message(msg)
 

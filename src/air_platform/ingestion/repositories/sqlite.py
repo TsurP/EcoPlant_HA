@@ -3,13 +3,26 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
 
 from air_platform.errors import StorageError
 from air_platform.ingestion.models import StationMetadata
+
+
+def _to_utc_naive_iso(dt: datetime) -> str:
+    """Normalise *dt* to UTC and strip tzinfo before converting to ISO string.
+
+    SQLite stores timestamps as plain text and compares them lexicographically.
+    Supplying a tz-aware string like ``2024-01-01T01:00:00+01:00`` would sort
+    differently than the equivalent UTC string ``2024-01-01T00:00:00``, so we
+    always normalise to naive-UTC before building query parameters.
+    """
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(UTC).replace(tzinfo=None)
+    return dt.isoformat()
 
 
 class SQLiteSensorDataRepository:
@@ -40,10 +53,10 @@ class SQLiteSensorDataRepository:
         parameters: list[str] = [station_id]
         if start_time is not None:
             query += " AND timestamp >= ?"
-            parameters.append(start_time.isoformat())
+            parameters.append(_to_utc_naive_iso(start_time))
         if end_time is not None:
             query += " AND timestamp <= ?"
-            parameters.append(end_time.isoformat())
+            parameters.append(_to_utc_naive_iso(end_time))
         query += " ORDER BY device_id, timestamp"
 
         try:

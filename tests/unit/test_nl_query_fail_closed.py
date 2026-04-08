@@ -4,9 +4,10 @@ These tests exercise the logic that was previously uncovered because
 test_llm_use_cases.py is entirely behind the ``openai_live`` marker.
 
 Scenarios covered:
-- LLM returns a query with metric_name=None  → clarification (finding 1)
-- LLM returns a query with malformed start_time → clarification (finding 2)
-- LLM returns a query with malformed end_time  → clarification (finding 2)
+- LLM returns a query with station_id=None   → clarification (station guard)
+- LLM returns a query with metric_name=None  → clarification (metric guard)
+- LLM returns a query with malformed start_time → clarification (time guard)
+- LLM returns a query with malformed end_time  → clarification (time guard)
 - LLM returns a valid query                   → repo is called with correct filters
 - LLM signals needs_clarification directly    → repo is never called
 """
@@ -89,6 +90,55 @@ def _make_metric(metric_name: str = "average_pressure_bar", value: float = 8.0) 
         resample_frequency="15min",
         missing_strategy="fill",
     )
+
+
+# ---------------------------------------------------------------------------
+# station_id=None must be rejected before hitting the repository
+# ---------------------------------------------------------------------------
+
+
+class TestMissingStationIdGuard:
+    def test_none_station_id_returns_clarification(self) -> None:
+        """LLM omits station_id → clarification result, repo never queried."""
+        uc, repo = _use_case(
+            StructuredMetricQuery(
+                station_id=None,
+                metric_name=SupportedMetric.AVERAGE_PRESSURE_BAR,
+            )
+        )
+
+        result = uc.execute("what is the average pressure?")
+
+        assert result.parsed_query.needs_clarification is True
+        assert result.aggregate_value is None
+        assert result.metric_results == []
+        assert repo.queries == [], "repo must not be called when station_id is absent"
+
+    def test_none_station_none_metric_returns_clarification_for_station(self) -> None:
+        """station_id guard fires before metric_name guard."""
+        uc, repo = _use_case(StructuredMetricQuery(station_id=None, metric_name=None))
+
+        result = uc.execute("show me everything")
+
+        assert result.parsed_query.needs_clarification is True
+        assert "station" in (result.parsed_query.clarification_message or "").lower()
+        assert repo.queries == []
+
+    def test_valid_station_id_proceeds_past_station_guard(self) -> None:
+        """With a valid station_id the station guard does not fire."""
+        metrics = [_make_metric(value=8.0)]
+        uc, repo = _use_case(
+            StructuredMetricQuery(
+                station_id="s1",
+                metric_name=SupportedMetric.AVERAGE_PRESSURE_BAR,
+            ),
+            metrics=metrics,
+        )
+
+        result = uc.execute("average pressure for s1")
+
+        assert result.parsed_query.needs_clarification is False
+        assert len(repo.queries) == 1
 
 
 # ---------------------------------------------------------------------------

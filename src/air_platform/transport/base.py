@@ -36,6 +36,16 @@ class MessageTransport(Protocol):
         """Return the next available message, or None if none available right now."""
         ...
 
+    def receive_blocking(self, timeout_s: float) -> TransportMessage | None:
+        """Block up to *timeout_s* seconds for the next message.
+
+        Returns the message if one arrives within the timeout, or ``None`` if
+        the queue is still empty after the timeout expires.  Implementations
+        that do not support blocking may fall back to a single non-blocking
+        ``receive()`` call.
+        """
+        ...
+
     def ack(self, message: TransportMessage) -> None:
         """Acknowledge successful processing of a message."""
         ...

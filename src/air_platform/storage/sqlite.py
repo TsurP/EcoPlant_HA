@@ -3,11 +3,24 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from air_platform.errors import StorageError
 from air_platform.metrics.models import MetricQuery, MetricResult
+
+
+def _to_utc_naive_iso(dt: datetime) -> str:
+    """Normalise *dt* to UTC and strip tzinfo before storing / querying.
+
+    SQLite has no native datetime type and compares TEXT columns
+    lexicographically.  All timestamps must use the same representation so
+    that range queries and the upsert primary key both work correctly regardless
+    of the timezone offset on the incoming ``datetime`` object.
+    """
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(UTC).replace(tzinfo=None)
+    return dt.isoformat()
 
 
 class SQLiteMetricResultRepository:
@@ -55,9 +68,9 @@ class SQLiteMetricResultRepository:
                 result.metric_name,
                 result.metric_value,
                 result.unit,
-                result.window_start.isoformat(),
-                result.window_end.isoformat(),
-                result.computed_at.isoformat(),
+                _to_utc_naive_iso(result.window_start),
+                _to_utc_naive_iso(result.window_end),
+                _to_utc_naive_iso(result.computed_at),
                 result.resample_frequency,
                 result.missing_strategy,
             )
@@ -100,10 +113,10 @@ class SQLiteMetricResultRepository:
             parameters.append(query.metric_name)
         if query.start_time is not None:
             statement += " AND window_end >= ?"
-            parameters.append(query.start_time.isoformat())
+            parameters.append(_to_utc_naive_iso(query.start_time))
         if query.end_time is not None:
             statement += " AND window_start <= ?"
-            parameters.append(query.end_time.isoformat())
+            parameters.append(_to_utc_naive_iso(query.end_time))
 
         statement += " ORDER BY station_id, device_id, metric_name, window_start"
 

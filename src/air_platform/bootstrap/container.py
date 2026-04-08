@@ -32,6 +32,11 @@ class AppContainer:
 
     Create via ``AppContainer.build(schema_path)`` and store on
     ``app.state.container`` in the FastAPI lifespan.
+
+    Important: ``queue.Queue`` is not cross-process. The producer and the API
+    must run in the **same Python process** and share the same queue instance.
+    Pass the shared queue via the ``event_queue`` argument of ``build()``.
+    See ``run_with_producer.py`` for an example of correct in-process wiring.
     """
 
     event_queue: queue.Queue[dict[str, Any] | None]
@@ -46,9 +51,23 @@ class AppContainer:
         cls,
         schema_path: str | Path,
         consumer_error_cap: int = 100,
+        event_queue: queue.Queue[dict[str, Any] | None] | None = None,
     ) -> AppContainer:
-        """Construct all components and wire them together."""
-        q: queue.Queue[dict[str, Any] | None] = queue.Queue()
+        """Construct all components and wire them together.
+
+        Args:
+            schema_path: Path to the sensor JSON schema file.
+            consumer_error_cap: Maximum number of processing errors to retain.
+            event_queue: Optional pre-created ``queue.Queue`` to use as the
+                event transport.  Pass this when you want to share the same
+                queue with an external producer running in the same process
+                (e.g. ``run_with_producer.py``).  If *None*, a fresh private
+                queue is created — useful for the standalone API server where
+                no producer is wired in.
+        """
+        q: queue.Queue[dict[str, Any] | None] = (
+            event_queue if event_queue is not None else queue.Queue()
+        )
         transport = InMemoryQueueTransport(q)
 
         metrics_repo = InMemoryMetricsAggregateRepository()

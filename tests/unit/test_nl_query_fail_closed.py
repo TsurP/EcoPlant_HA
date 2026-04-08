@@ -64,7 +64,9 @@ class _StubRepo:
         return list(self._metrics)
 
 
-def _use_case(query: StructuredMetricQuery, metrics: list[MetricResult] | None = None) -> tuple[
+def _use_case(
+    query: StructuredMetricQuery, metrics: list[MetricResult] | None = None
+) -> tuple[
     AnswerNLQueryUseCase,
     _StubRepo,
 ]:
@@ -108,9 +110,7 @@ class TestMissingMetricNameGuard:
 
     def test_none_metric_name_with_station_id_still_rejected(self) -> None:
         """With a valid station_id but no metric_name: still rejected (prevents cross-type mix)."""
-        uc, repo = _use_case(
-            StructuredMetricQuery(station_id="station-1", metric_name=None)
-        )
+        uc, repo = _use_case(StructuredMetricQuery(station_id="station-1", metric_name=None))
 
         result = uc.execute("show me all metrics for station-1")
 

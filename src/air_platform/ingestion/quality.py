@@ -99,7 +99,19 @@ def detect_flatlines(
             if len(series) < 2:
                 continue
 
-            run_ids = series[column].ne(series[column].shift()).cumsum()
+            # Detect the expected sampling cadence so that two equal readings
+            # separated by a large timestamp gap are NOT merged into one run.
+            ts_list = [pd.Timestamp(str(t)) for t in series["timestamp"]]
+            expected_interval = infer_expected_interval(ts_list)
+
+            value_runs = series[column].ne(series[column].shift()).cumsum()
+            if expected_interval is not None:
+                ts_series = pd.to_datetime(series["timestamp"])
+                gap_breaks = (ts_series.diff() > expected_interval * 1.5).cumsum()
+                run_ids = value_runs.astype(str) + "_" + gap_breaks.astype(str)
+            else:
+                run_ids = value_runs.astype(str)
+
             threshold = thresholds.get(column) or default_window_minutes
             for _, run in series.groupby(run_ids):
                 if len(run) < 2:

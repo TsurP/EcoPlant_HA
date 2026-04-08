@@ -166,6 +166,14 @@ class OpenAIProvider:
                 # Validation / parse failures are not retried.
                 raise
 
+            except Exception as exc:
+                # Any other SDK or network exception (e.g. APIConnectionError) is
+                # immediately re-raised as LLMProviderError so callers see a typed
+                # LLMError rather than a raw SDK exception or a 500.
+                raise LLMProviderError(
+                    f"llm.{caller} unexpected error: {type(exc).__name__}: {exc}"
+                ) from exc
+
         # All retries exhausted — map the last exception.
         if isinstance(last_exc, openai.APITimeoutError):
             raise LLMTimeoutError(

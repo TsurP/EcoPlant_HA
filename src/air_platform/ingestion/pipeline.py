@@ -37,10 +37,12 @@ class IngestionPipeline:
     def __init__(self, repository: SensorDataRepository, schema_path: str | Path) -> None:
         self.repository = repository
         self.schema_path = Path(schema_path)
+        self._schema = load_schema(self.schema_path)
+        self._table_schema = _get_sensor_table_schema(self._schema)
 
     def run(self, config: ProcessingConfig) -> ProcessedDataset:
-        schema = load_schema(self.schema_path)
-        table_schema = _get_sensor_table_schema(schema)
+        schema = self._schema
+        table_schema = self._table_schema
 
         raw_data = self.repository.fetch_sensor_readings(
             station_id=config.station_id,

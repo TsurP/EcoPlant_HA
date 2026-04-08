@@ -16,7 +16,12 @@ from datetime import datetime
 from typing import Protocol
 
 from air_platform.errors import DataNotFoundError, LLMError
-from air_platform.ingestion.models import ProcessedDataset, ProcessingConfig, QualityReport
+from air_platform.ingestion.models import (
+    MissingStrategy,
+    ProcessedDataset,
+    ProcessingConfig,
+    QualityReport,
+)
 from air_platform.llm import prompts
 from air_platform.llm.provider import LLMProvider
 from air_platform.llm.schemas import MetricAggregation, StructuredMetricQuery
@@ -203,18 +208,62 @@ class AnswerNLQueryUseCase:
                 warning=parsed.clarification_message,
             )
 
-        # Step 3: execute the query deterministically.
+        # Step 3: reject vague parses that would produce meaningless cross-metric aggregates.
+        # metric_name must be present — aggregating different metric types (e.g. pressure + RPM)
+        # into a single number is nonsensical regardless of which station is requested.
+        if parsed.metric_name is None:
+            clarification = StructuredMetricQuery(
+                needs_clarification=True,
+                clarification_message=(
+                    "Please specify a metric name in your question "
+                    "(e.g. average_pressure_bar, cycle_count)."
+                ),
+            )
+            return NLQueryResult(
+                original_question=question,
+                parsed_query=clarification,
+                metric_results=[],
+                aggregate_value=None,
+                natural_language_answer=None,
+                warning=clarification.clarification_message,
+            )
+
+        # Step 4: parse time filters strictly — fail closed rather than silently broadening.
+        try:
+            start_dt = _parse_iso_datetime_strict(parsed.start_time)
+            end_dt = _parse_iso_datetime_strict(parsed.end_time)
+        except ValueError as exc:
+            bad_field = "start_time" if parsed.start_time else "end_time"
+            clarification = StructuredMetricQuery(
+                needs_clarification=True,
+                clarification_message=(
+                    f"Could not parse {bad_field} filter: {exc!s}. "
+                    "Please use ISO-8601 format (e.g. 2024-01-01T00:00:00)."
+                ),
+            )
+            return NLQueryResult(
+                original_question=question,
+                parsed_query=clarification,
+                metric_results=[],
+                aggregate_value=None,
+                natural_language_answer=None,
+                warning=clarification.clarification_message,
+            )
+
+        # Step 5: execute the query deterministically.
         metric_results = self._repo.get_metric_results(
             MetricQuery(
                 station_id=parsed.station_id,
                 device_id=parsed.device_id,
                 metric_name=parsed.metric_name,
+                start_time=start_dt,
+                end_time=end_dt,
             )
         )
 
         aggregate_value = _aggregate(metric_results, parsed.aggregation)
 
-        # Step 4: optionally phrase the result in English.
+        # Step 6: optionally phrase the result in English.
         nl_answer: str | None = None
         llm_rendering_failed = False
         rendering_warning: str | None = None
@@ -255,9 +304,15 @@ class GenerateDataQualityReportUseCase:
         self,
         pipeline: _PipelineLike,
         llm: LLMProvider,
+        resample_frequency: str = "15min",
+        missing_strategy: str = "fill",
+        flatline_window_minutes: int = 30,
     ) -> None:
         self._pipeline: _PipelineLike = pipeline
         self._llm = llm
+        self._resample_frequency = resample_frequency
+        self._missing_strategy = MissingStrategy(missing_strategy)
+        self._flatline_window_minutes = flatline_window_minutes
 
     def execute(
         self,
@@ -269,6 +324,9 @@ class GenerateDataQualityReportUseCase:
             station_id=station_id,
             start_time=start_time,
             end_time=end_time,
+            resample_frequency=self._resample_frequency,
+            missing_strategy=self._missing_strategy,
+            flatline_window_minutes=self._flatline_window_minutes,
         )
         dataset = self._pipeline.run(config)
         qr = dataset.quality_report
@@ -318,7 +376,7 @@ def _try_generate_text(
     try:
         text = llm.generate_text(system_prompt=system_prompt, user_content=user_content)
         return text, False, None
-    except LLMError as exc:
+    except Exception as exc:
         logger.warning("llm.generate_text degraded: %s", exc)
         return None, True, fallback_warning
 
@@ -368,7 +426,7 @@ def _aggregate(metrics: list[MetricResult], aggregation: MetricAggregation) -> f
     if aggregation == MetricAggregation.SUM:
         return sum(values)
     if aggregation == MetricAggregation.LATEST:
-        latest = max(metrics, key=lambda m: m.computed_at)
+        latest = max(metrics, key=lambda m: m.window_end)
         return latest.metric_value
     return None  # pragma: no cover
 
@@ -377,3 +435,14 @@ def _format_period(start: datetime | None, end: datetime | None) -> str:
     start_str = start.isoformat() if start else "beginning"
     end_str = end.isoformat() if end else "now"
     return f"{start_str} to {end_str}"
+
+
+def _parse_iso_datetime_strict(value: str | None) -> datetime | None:
+    """Parse an ISO-8601 string to datetime, raising ValueError on invalid input.
+
+    Returns None when *value* is None (i.e. no filter supplied).
+    Raises ValueError so callers can fail closed instead of silently dropping filters.
+    """
+    if value is None:
+        return None
+    return datetime.fromisoformat(value)

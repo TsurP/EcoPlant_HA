@@ -14,10 +14,16 @@ from air_platform.llm.use_cases import (
     SummarizeStationHealthUseCase,
 )
 from air_platform.metrics.models import MetricConfig, MetricQuery
+from air_platform.repositories.errors import InMemoryErrorRepository
+from air_platform.repositories.metrics_aggregate import InMemoryMetricsAggregateRepository
+from air_platform.repositories.processing_status import InMemoryProcessingStatusRepository
 from air_platform.service.dependencies import (
     get_dq_report_use_case,
+    get_error_repo,
+    get_metrics_aggregate_repo,
     get_nl_query_use_case,
     get_processing_service,
+    get_processing_status_repo,
     get_settings,
     get_station_summary_use_case,
 )
@@ -26,9 +32,12 @@ from air_platform.service.schemas import (
     DQReportRequest,
     DQReportResponse,
     HealthResponse,
+    MetricAggregateResponse,
     MetricResponse,
     NLQueryRequest,
     NLQueryResponse,
+    ProcessingErrorResponse,
+    ProcessingStatusResponse,
     ProcessStationRequest,
     ProcessStationResponse,
     StationSummaryRequest,
@@ -168,3 +177,57 @@ def data_quality_report(
         end_time=payload.end_time,
     )
     return DQReportResponse.from_result(result)
+
+
+# ---------------------------------------------------------------------------
+# Challenge 3 — event-driven stream endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/metrics/stations/{station_id}",
+    response_model=list[MetricAggregateResponse],
+)
+def get_stream_metrics(
+    station_id: str,
+    device_id: str | None = Query(default=None),
+    metric_type: str | None = Query(default=None),
+    start_time: datetime | None = Query(default=None),
+    end_time: datetime | None = Query(default=None),
+    bucket: str | None = Query(default=None, description="'hour' or 'day'"),
+    repo: InMemoryMetricsAggregateRepository = Depends(get_metrics_aggregate_repo),
+) -> list[MetricAggregateResponse]:
+    """Return incremental aggregates from the real-time event stream.
+
+    These are separate from the batch metrics at ``GET /metrics`` — they reflect
+    events consumed by the background queue consumer rather than the SQLite pipeline.
+    """
+    results = repo.query(
+        station_id=station_id,
+        device_id=device_id,
+        metric_type=metric_type,
+        start_time=start_time,
+        end_time=end_time,
+        bucket=bucket,
+    )
+    return [MetricAggregateResponse.from_domain(a) for a in results]
+
+
+@router.get("/processing/status", response_model=ProcessingStatusResponse)
+def get_processing_status(
+    status_repo: InMemoryProcessingStatusRepository = Depends(get_processing_status_repo),
+) -> ProcessingStatusResponse:
+    """Return the current consumer processing status and counters."""
+    return ProcessingStatusResponse.from_domain(status_repo.get_status())
+
+
+@router.get("/processing/errors", response_model=list[ProcessingErrorResponse])
+def get_processing_errors(
+    limit: int = Query(default=50, ge=1, le=500),
+    error_repo: InMemoryErrorRepository = Depends(get_error_repo),
+) -> list[ProcessingErrorResponse]:
+    """Return the most recent processing errors (newest last).
+
+    Use ``limit`` to control how many errors are returned (default 50, max 500).
+    """
+    return [ProcessingErrorResponse.from_domain(e) for e in error_repo.get_recent(limit=limit)]

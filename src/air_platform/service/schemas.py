@@ -9,6 +9,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from air_platform.ingestion.models import MissingStrategy, QualityReport
 from air_platform.llm.use_cases import DQReportResult, NLQueryResult, StationSummaryResult
 from air_platform.metrics.models import MetricResult
+from air_platform.repositories.errors import ProcessingError
+from air_platform.repositories.metrics_aggregate import MetricAggregate
+from air_platform.repositories.processing_status import ProcessingStatus
 from air_platform.service.orchestrator import StationProcessingSummary
 
 
@@ -283,4 +286,91 @@ class DQReportResponse(BaseModel):
             warnings=result.warnings,
             llm_failed=result.llm_failed,
             llm_warning=result.llm_warning,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Challenge 3 — stream metrics and processing status schemas
+# ---------------------------------------------------------------------------
+
+
+class MetricAggregateResponse(BaseModel):
+    """Serialized incremental aggregate for one metric/bucket."""
+
+    station_id: str
+    device_id: str
+    metric_type: str
+    bucket: str
+    bucket_start: datetime
+    count: int
+    avg: float
+    min_value: float | None
+    max_value: float | None
+    total: float
+    latest_timestamp: datetime | None
+
+    @classmethod
+    def from_domain(cls, agg: MetricAggregate) -> MetricAggregateResponse:
+        return cls(
+            station_id=agg.station_id,
+            device_id=agg.device_id,
+            metric_type=agg.metric_type,
+            bucket=agg.bucket,
+            bucket_start=agg.bucket_start,
+            count=agg.count,
+            avg=agg.avg,
+            min_value=agg.min_value,
+            max_value=agg.max_value,
+            total=agg.total,
+            latest_timestamp=agg.latest_timestamp,
+        )
+
+
+class ProcessingStatusResponse(BaseModel):
+    """Serialized consumer processing status."""
+
+    consumer_running: bool
+    events_consumed: int
+    events_processed_successfully: int
+    events_malformed: int
+    events_failed: int
+    last_event_timestamp: datetime | None
+    last_success_timestamp: datetime | None
+    last_error_timestamp: datetime | None
+    queue_depth: int | None
+
+    @classmethod
+    def from_domain(cls, status: ProcessingStatus) -> ProcessingStatusResponse:
+        return cls(
+            consumer_running=status.consumer_running,
+            events_consumed=status.events_consumed,
+            events_processed_successfully=status.events_processed_successfully,
+            events_malformed=status.events_malformed,
+            events_failed=status.events_failed,
+            last_event_timestamp=status.last_event_timestamp,
+            last_success_timestamp=status.last_success_timestamp,
+            last_error_timestamp=status.last_error_timestamp,
+            queue_depth=status.queue_depth,
+        )
+
+
+class ProcessingErrorResponse(BaseModel):
+    """Serialized processing error record."""
+
+    error_id: str
+    error_type: str
+    message: str
+    event_id: str | None
+    occurred_at: datetime
+    detail: str | None
+
+    @classmethod
+    def from_domain(cls, error: ProcessingError) -> ProcessingErrorResponse:
+        return cls(
+            error_id=error.error_id,
+            error_type=error.error_type,
+            message=error.message,
+            event_id=error.event_id,
+            occurred_at=error.occurred_at,
+            detail=error.detail,
         )

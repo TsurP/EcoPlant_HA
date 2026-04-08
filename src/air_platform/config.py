@@ -26,4 +26,7 @@ class AppSettings(BaseSettings):
     openai_timeout_seconds: float = 30.0
     openai_max_retries: int = 3
 
+    # Challenge 3 — event consumer settings
+    consumer_error_cap: int = 100  # Max recent errors kept in memory
+
     model_config = SettingsConfigDict(env_prefix="AIR_PLATFORM_", extra="ignore")

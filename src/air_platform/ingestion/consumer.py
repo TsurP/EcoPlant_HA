@@ -104,6 +104,10 @@ class ConsumerRunner:
                 continue
             self._process_message(msg)
 
+        # Reflect the true depth now that the loop has exited.  After a
+        # sentinel-based exit this will be 0; after stop() it shows what
+        # remains in the transport.
+        self._status_repo.set_queue_depth(self._transport.size())
         self._status_repo.set_running(False)
 
     def run_until_empty(self) -> None:
@@ -116,6 +120,7 @@ class ConsumerRunner:
             if msg is None:
                 break
             self._process_message(msg)
+        self._status_repo.set_queue_depth(self._transport.size())
 
     # ------------------------------------------------------------------
     # Internal
@@ -175,11 +180,20 @@ class ConsumerRunner:
 
 
 def _extract_event_timestamp(payload: dict[str, Any]) -> datetime | None:
-    """Parse the event's own timestamp from its payload, if present."""
+    """Parse the event's own timestamp from its payload, if present.
+
+    Always returns a UTC-aware datetime or None.  Naive ISO strings (no
+    ``+HH:MM`` suffix) are assumed to be UTC rather than left naive, which
+    would cause a ``TypeError`` when compared to the aware watermark stored
+    in the status repository.
+    """
     raw = payload.get("timestamp")
     if not isinstance(raw, str):
         return None
     try:
-        return datetime.fromisoformat(raw)
+        dt = datetime.fromisoformat(raw)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        return dt
     except ValueError:
         return None

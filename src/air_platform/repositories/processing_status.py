@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 
 @dataclass
@@ -52,7 +52,17 @@ class InMemoryProcessingStatusRepository:
         with self._lock:
             self._status.events_consumed += 1
             if event_timestamp is not None:
-                self._status.last_event_timestamp = event_timestamp
+                # Normalize to UTC so that mixed naive/aware streams never
+                # raise TypeError on the watermark comparison below.
+                if event_timestamp.tzinfo is None:
+                    event_timestamp = event_timestamp.replace(tzinfo=UTC)
+                # Only advance the watermark; never let out-of-order delivery
+                # (the producer shuffles batches) move the timestamp backward.
+                if (
+                    self._status.last_event_timestamp is None
+                    or event_timestamp > self._status.last_event_timestamp
+                ):
+                    self._status.last_event_timestamp = event_timestamp
 
     def record_success(self, timestamp: datetime | None = None) -> None:
         now = timestamp or _utc_now()
@@ -78,6 +88,4 @@ class InMemoryProcessingStatusRepository:
 
 
 def _utc_now() -> datetime:
-    from datetime import UTC
-
     return datetime.now(UTC)

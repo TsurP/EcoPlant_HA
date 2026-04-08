@@ -125,24 +125,30 @@ class OpenAIProvider:
         start = time.monotonic()
         last_exc: Exception | None = None
 
-        for attempt in range(1, self._max_retries + 1):
+        # max_retries=0 → 1 attempt, 0 retries; max_retries=N → N+1 total attempts.
+        total_attempts = self._max_retries + 1
+        for attempt in range(1, total_attempts + 1):
             try:
                 result = fn()
                 logger.info("llm.%s completed latency=%.2fs", caller, time.monotonic() - start)
                 return result
 
-            except openai.APITimeoutError as exc:
-                logger.warning("llm.%s timeout attempt=%d/%d", caller, attempt, self._max_retries)
+            except (openai.APITimeoutError, openai.APIConnectionError) as exc:
+                logger.warning(
+                    "llm.%s %s attempt=%d/%d",
+                    caller,
+                    "timeout" if isinstance(exc, openai.APITimeoutError) else "connection_error",
+                    attempt,
+                    total_attempts,
+                )
                 last_exc = exc
-                if attempt < self._max_retries:
+                if attempt < total_attempts:
                     self._backoff(attempt)
 
             except openai.RateLimitError as exc:
-                logger.warning(
-                    "llm.%s rate_limited attempt=%d/%d", caller, attempt, self._max_retries
-                )
+                logger.warning("llm.%s rate_limited attempt=%d/%d", caller, attempt, total_attempts)
                 last_exc = exc
-                if attempt < self._max_retries:
+                if attempt < total_attempts:
                     self._backoff(attempt)
 
             except openai.APIStatusError as exc:
@@ -152,10 +158,10 @@ class OpenAIProvider:
                         caller,
                         exc.status_code,
                         attempt,
-                        self._max_retries,
+                        total_attempts,
                     )
                     last_exc = exc
-                    if attempt < self._max_retries:
+                    if attempt < total_attempts:
                         self._backoff(attempt)
                 else:
                     raise LLMProviderError(
@@ -174,13 +180,17 @@ class OpenAIProvider:
                     f"llm.{caller} unexpected error: {type(exc).__name__}: {exc}"
                 ) from exc
 
-        # All retries exhausted — map the last exception.
+        # All attempts exhausted — map the last exception to a typed LLM error.
         if isinstance(last_exc, openai.APITimeoutError):
             raise LLMTimeoutError(
-                f"llm.{caller} timed out after {self._max_retries} attempts"
+                f"llm.{caller} timed out after {total_attempts} attempt(s)"
+            ) from last_exc
+        if isinstance(last_exc, openai.APIConnectionError):
+            raise LLMProviderError(
+                f"llm.{caller} connection failed after {total_attempts} attempt(s)"
             ) from last_exc
         raise LLMProviderError(
-            f"llm.{caller} failed after {self._max_retries} attempts"
+            f"llm.{caller} failed after {total_attempts} attempt(s)"
         ) from last_exc
 
     def _backoff(self, attempt: int) -> None:

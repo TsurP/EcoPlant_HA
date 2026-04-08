@@ -13,7 +13,10 @@ def test_health_endpoint(app_settings: AppSettings) -> None:
     response = client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    data = response.json()
+    assert data["status"] == "ok"
+    assert data["producer_ok"] is True
+    assert data["producer_error"] is None
 
 
 def test_process_station_endpoint_happy_path(app_settings: AppSettings) -> None:

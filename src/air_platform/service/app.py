@@ -46,6 +46,7 @@ def create_app(
             resolved_settings.sensor_schema_path,
             consumer_error_cap=resolved_settings.consumer_error_cap,
             event_queue=event_queue,
+            queue_maxsize=resolved_settings.consumer_queue_maxsize,
         )
         _app.state.container = container
         container.start_consumer()

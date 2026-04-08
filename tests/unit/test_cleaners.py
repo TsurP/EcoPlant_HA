@@ -6,7 +6,8 @@ from air_platform.ingestion.cleaners import apply_missing_strategy, nullify_out_
 from air_platform.ingestion.models import ColumnSchema, MissingStrategy, TableSchema
 
 
-def test_fill_strategy_forward_and_backward_fills_per_device() -> None:
+def test_fill_strategy_forward_fills_trailing_nulls() -> None:
+    """ffill propagates the last known value forward; trailing nulls are filled."""
     dataframe = pd.DataFrame(
         {
             "timestamp": pd.to_datetime(
@@ -25,7 +26,38 @@ def test_fill_strategy_forward_and_backward_fills_per_device() -> None:
 
     cleaned = apply_missing_strategy(dataframe, ["discharge_pressure"], MissingStrategy.FILL)
 
-    assert cleaned["discharge_pressure"].tolist() == [7.0, 7.0, 7.0]
+    # Row 0: no prior value → stays NaN (no back-fill to avoid leaking future data).
+    # Row 2: forward-filled from row 1.
+    import math
+
+    assert math.isnan(cleaned["discharge_pressure"].iloc[0])
+    assert cleaned["discharge_pressure"].iloc[1] == 7.0
+    assert cleaned["discharge_pressure"].iloc[2] == 7.0
+
+
+def test_fill_strategy_does_not_backfill_leading_nulls() -> None:
+    """A leading null must not be filled backward — that would use a future value."""
+    dataframe = pd.DataFrame(
+        {
+            "timestamp": pd.to_datetime(
+                [
+                    "2024-02-01T00:00:00+00:00",
+                    "2024-02-01T00:01:00+00:00",
+                ],
+                utc=True,
+            ),
+            "station_id": ["station-1"] * 2,
+            "device_id": ["device-1"] * 2,
+            "discharge_pressure": [None, 9.0],
+        }
+    )
+
+    cleaned = apply_missing_strategy(dataframe, ["discharge_pressure"], MissingStrategy.FILL)
+
+    import math
+
+    assert math.isnan(cleaned["discharge_pressure"].iloc[0])
+    assert cleaned["discharge_pressure"].iloc[1] == 9.0
 
 
 def test_interpolate_strategy_interpolates_over_time() -> None:

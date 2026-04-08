@@ -159,6 +159,8 @@ class HealthResponse(BaseModel):
     """Health endpoint payload."""
 
     status: str = "ok"
+    producer_ok: bool = True
+    producer_error: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +173,13 @@ class StationSummaryRequest(BaseModel):
 
     start_time: datetime | None = None
     end_time: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_time_range_order(self) -> StationSummaryRequest:
+        if self.start_time is not None and self.end_time is not None:
+            if self.start_time >= self.end_time:
+                raise ValueError("start_time must be strictly before end_time")
+        return self
 
 
 class MetricSnapshotItem(BaseModel):
@@ -273,6 +282,13 @@ class DQReportRequest(BaseModel):
 
     start_time: datetime | None = None
     end_time: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_time_range_order(self) -> DQReportRequest:
+        if self.start_time is not None and self.end_time is not None:
+            if self.start_time >= self.end_time:
+                raise ValueError("start_time must be strictly before end_time")
+        return self
 
 
 class DQReportResponse(BaseModel):

@@ -270,6 +270,25 @@ class AnswerNLQueryUseCase:
                 warning=clarification.clarification_message,
             )
 
+        # Reject impossible windows before hitting storage — an inverted range
+        # would otherwise silently return results from outside the requested window.
+        if start_dt is not None and end_dt is not None and start_dt >= end_dt:
+            clarification = StructuredMetricQuery(
+                needs_clarification=True,
+                clarification_message=(
+                    f"The requested time window is invalid: start_time ({start_dt.isoformat()}) "
+                    f"must be before end_time ({end_dt.isoformat()})."
+                ),
+            )
+            return NLQueryResult(
+                original_question=question,
+                parsed_query=clarification,
+                metric_results=[],
+                aggregate_value=None,
+                natural_language_answer=None,
+                warning=clarification.clarification_message,
+            )
+
         # Step 5: execute the query deterministically.
         metric_results = self._repo.get_metric_results(
             MetricQuery(
@@ -401,8 +420,19 @@ def _try_generate_text(
         return None, True, fallback_warning
 
 
+# Maximum rows forwarded to the LLM prompt.  Token usage, latency, and cost
+# all scale with this number, not with the total stored history.
+_SNAPSHOT_MAX_ROWS = 200
+
+
 def _build_metrics_snapshot(metrics: list[MetricResult]) -> str:
-    """Format metrics as a compact JSON-like text for the LLM prompt."""
+    """Format metrics as a compact JSON-like text for the LLM prompt.
+
+    Capped at _SNAPSHOT_MAX_ROWS most-recent rows (by window_start descending)
+    so that prompt size stays bounded regardless of how much history is stored.
+    """
+    if len(metrics) > _SNAPSHOT_MAX_ROWS:
+        metrics = sorted(metrics, key=lambda m: m.window_start, reverse=True)[:_SNAPSHOT_MAX_ROWS]
     rows: list[dict[str, object]] = []
     for m in metrics:
         rows.append(

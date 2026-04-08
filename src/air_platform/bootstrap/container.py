@@ -52,6 +52,7 @@ class AppContainer:
         schema_path: str | Path,
         consumer_error_cap: int = 100,
         event_queue: queue.Queue[dict[str, Any] | None] | None = None,
+        queue_maxsize: int = 0,
     ) -> AppContainer:
         """Construct all components and wire them together.
 
@@ -64,9 +65,11 @@ class AppContainer:
                 (e.g. ``run_with_producer.py``).  If *None*, a fresh private
                 queue is created — useful for the standalone API server where
                 no producer is wired in.
+            queue_maxsize: Maximum number of items the internal queue may hold
+                (0 = unbounded).  Ignored when *event_queue* is provided.
         """
         q: queue.Queue[dict[str, Any] | None] = (
-            event_queue if event_queue is not None else queue.Queue()
+            event_queue if event_queue is not None else queue.Queue(maxsize=queue_maxsize)
         )
         transport = InMemoryQueueTransport(q)
 

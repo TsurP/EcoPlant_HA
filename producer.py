@@ -169,33 +169,38 @@ class SensorEventProducer:
             batch: list[dict[str, Any]] = []
 
             while not self._stop_event.is_set():
-                row = cursor.fetchone()
-                if row is None:
+                # fetchmany cuts Python/SQLite roundtrips compared to fetchone.
+                rows = cursor.fetchmany(self.batch_size)
+                if not rows:
                     # Flush remaining batch
                     self._publish_batch(batch)
                     break
 
-                row_dict = dict(row)
-                current_timestamp = datetime.fromisoformat(row_dict["timestamp"])
+                for row in rows:
+                    if self._stop_event.is_set():
+                        break
 
-                # Simulate time delay between readings
-                if prev_timestamp is not None:
-                    delta = (current_timestamp - prev_timestamp).total_seconds()
-                    sleep_time = delta / self.speed_multiplier
-                    if sleep_time > 0:
-                        # Publish accumulated batch before sleeping
+                    row_dict = dict(row)
+                    current_timestamp = datetime.fromisoformat(row_dict["timestamp"])
+
+                    # Simulate time delay between readings
+                    if prev_timestamp is not None:
+                        delta = (current_timestamp - prev_timestamp).total_seconds()
+                        sleep_time = delta / self.speed_multiplier
+                        if sleep_time > 0:
+                            # Publish accumulated batch before sleeping
+                            self._publish_batch(batch)
+                            batch = []
+                            time.sleep(min(sleep_time, 0.1))  # Cap sleep to keep things moving
+
+                    event = self._row_to_event(row_dict)
+                    batch.append(event)
+
+                    if len(batch) >= self.batch_size:
                         self._publish_batch(batch)
                         batch = []
-                        time.sleep(min(sleep_time, 0.1))  # Cap sleep to keep things moving
 
-                event = self._row_to_event(row_dict)
-                batch.append(event)
-
-                if len(batch) >= self.batch_size:
-                    self._publish_batch(batch)
-                    batch = []
-
-                prev_timestamp = current_timestamp
+                    prev_timestamp = current_timestamp
         except Exception as exc:
             self._producer_error = exc
         finally:
@@ -285,7 +290,7 @@ def main() -> None:
     print("Press Ctrl+C to stop.\n")
 
     q: queue.Queue[dict[str, Any] | None] = queue.Queue()
-    producer = SensorEventProducer(db_path="sensor_data.db", event_queue=q)
+    producer = SensorEventProducer(db_path="data/sensor_data.db", event_queue=q)
     producer.start()
 
     try:
@@ -293,6 +298,16 @@ def main() -> None:
         while True:
             event = q.get(timeout=10.0)
             if event is None:
+                # Sentinel received — check whether it was sent due to a crash.
+                if producer.error is not None:
+                    import sys
+
+                    print(
+                        f"\nProducer failed after {events_consumed} event(s): "
+                        f"{type(producer.error).__name__}: {producer.error}",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
                 print(f"\nEnd of stream. Total events: {events_consumed}")
                 break
             events_consumed += 1

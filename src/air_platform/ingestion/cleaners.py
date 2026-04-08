@@ -55,14 +55,16 @@ def apply_missing_strategy(
     for _, group in cleaned.groupby("device_id", sort=False):
         ordered = group.sort_values("timestamp").copy()
         if strategy == MissingStrategy.FILL:
-            ordered.loc[:, list(numeric_columns)] = (
-                ordered.loc[:, list(numeric_columns)].ffill().bfill()
-            )
+            # Forward-fill only: back-filling would propagate future observations
+            # into earlier timestamps, making metrics time-unfaithful.
+            ordered.loc[:, list(numeric_columns)] = ordered.loc[:, list(numeric_columns)].ffill()
         elif strategy == MissingStrategy.INTERPOLATE:
+            # limit_direction="forward" prevents extrapolation before the first
+            # known value, which would also leak future context.
             interpolated = (
                 ordered.set_index("timestamp")
                 .loc[:, list(numeric_columns)]
-                .interpolate(method="time", limit_direction="both")
+                .interpolate(method="time", limit_direction="forward")
             )
             ordered.loc[:, list(numeric_columns)] = interpolated.to_numpy()
         grouped_frames.append(ordered)

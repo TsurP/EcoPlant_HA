@@ -62,7 +62,7 @@ This exercises both the deterministic pipeline and the LLM layer.
 
 ```bash
 make install
-````
+```
 
 Equivalent direct command:
 
@@ -97,6 +97,20 @@ The service starts with:
 ```bash
 uvicorn air_platform.service.app:app --reload
 ```
+
+> **Challenge 3 — event-driven stream:**  The in-process queue used by the
+> background consumer is a Python `queue.Queue`.  Because it is an in-process
+> data structure, the producer and consumer **must share the same queue
+> instance in the same Python process**.  `make run` / `uvicorn` alone does
+> **not** wire the producer; use `run_with_producer.py` instead:
+>
+> ```bash
+> uv run python run_with_producer.py
+> ```
+>
+> This script creates the shared queue, starts the producer in a daemon
+> thread, and passes the queue into `create_app()` so the API consumer reads
+> from the same source.  The server still listens on `http://127.0.0.1:8000`.
 
 Default base URL:
 

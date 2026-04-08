@@ -85,13 +85,13 @@ def get_llm_provider(request: Request) -> LLMProvider:
     provider = getattr(request.app.state, "llm_provider", None)
     if not isinstance(provider, OpenAIProvider):
         settings = get_settings(request)
-        if not settings.openai_api_key:
+        if settings.openai_api_key is None:
             raise LLMNotConfiguredError(
                 "OPENAI_API_KEY (env: AIR_PLATFORM_OPENAI_API_KEY) is not configured. "
                 "LLM endpoints require a valid OpenAI API key."
             )
         provider = OpenAIProvider(
-            api_key=settings.openai_api_key,
+            api_key=settings.openai_api_key.get_secret_value(),
             model=settings.openai_model,
             timeout_seconds=settings.openai_timeout_seconds,
             max_retries=settings.openai_max_retries,

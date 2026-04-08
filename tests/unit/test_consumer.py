@@ -57,6 +57,26 @@ def _good_event(station_id: str = "station-1", device_id: str = "device-a") -> d
     }
 
 
+def _good_event_naive_ts(
+    station_id: str = "station-1", device_id: str = "device-a"
+) -> dict[str, object]:
+    """Same as _good_event but with a naive (no-tz) ISO timestamp."""
+    return {
+        "event_id": str(uuid4()),
+        "event_type": "sensor_reading",
+        "timestamp": "2024-02-01T10:05:00",  # no +00:00
+        "station_id": station_id,
+        "device_id": device_id,
+        "readings": {
+            "discharge_pressure": 8.5,
+            "air_flow_rate": 100.0,
+            "power_consumption": 55.0,
+            "motor_speed": 1500,
+            "discharge_temp": 45.0,
+        },
+    }
+
+
 def _malformed_event() -> dict[str, object]:
     return {"event_id": str(uuid4()), "garbage": "data"}
 
@@ -154,3 +174,77 @@ class TestConsumerBackground:
         )
         assert status_repo.get_status().consumer_running is False
         assert status_repo.get_status().events_consumed == 1
+
+
+class TestMixedTimezoneStream:
+    """Regression: mixed naive/aware timestamps must not crash the consumer."""
+
+    def test_aware_then_naive_does_not_raise(self):
+        """An aware event followed by a naive-ts event must both be consumed cleanly."""
+        runner, q, _, status_repo, _ = _make_runner()
+        q.put(_good_event())  # +00:00 suffix — aware
+        q.put(_good_event_naive_ts())  # no tz suffix — naive
+        runner.run_until_empty()
+
+        status = status_repo.get_status()
+        assert status.events_consumed == 2
+        assert status.events_processed_successfully == 2
+        # Watermark must be a UTC-aware datetime, not None
+        assert status.last_event_timestamp is not None
+        assert status.last_event_timestamp.tzinfo is not None
+
+    def test_naive_then_aware_does_not_raise(self):
+        """A naive-ts event followed by an aware event must not crash."""
+        runner, q, _, status_repo, _ = _make_runner()
+        q.put(_good_event_naive_ts())  # naive first
+        q.put(_good_event())  # aware second
+        runner.run_until_empty()
+
+        status = status_repo.get_status()
+        assert status.events_consumed == 2
+        assert status.events_processed_successfully == 2
+
+    def test_watermark_is_always_utc_aware(self):
+        """last_event_timestamp must have tzinfo set regardless of input timezone."""
+        runner, q, _, status_repo, _ = _make_runner()
+        q.put(_good_event_naive_ts())
+        runner.run_until_empty()
+
+        ts = status_repo.get_status().last_event_timestamp
+        assert ts is not None
+        assert ts.tzinfo is not None
+
+
+class TestQueueDepthAfterDrain:
+    """Regression: queue_depth must be 0 after the stream is fully consumed."""
+
+    def test_run_until_empty_resets_depth_to_zero(self):
+        """After run_until_empty, queue_depth must reflect the now-empty queue."""
+        runner, q, _, status_repo, _ = _make_runner()
+        q.put(_good_event())
+        q.put(None)  # sentinel — consumed transparently by transport
+        runner.run_until_empty()
+
+        assert status_repo.get_status().queue_depth == 0
+
+    def test_run_loop_resets_depth_to_zero_after_sentinel(self):
+        """After run_loop exits via sentinel, queue_depth must be 0."""
+        runner, q, _, status_repo, _ = _make_runner()
+        q.put(_good_event())
+        q.put(None)  # end-of-stream sentinel
+        runner.start_background()
+
+        assert runner._thread is not None
+        runner._thread.join(timeout=3.0)
+
+        assert status_repo.get_status().queue_depth == 0
+
+    def test_single_message_stream_depth_is_zero_after_drain(self):
+        """A 1-message stream must not leave queue_depth=1 after the sentinel."""
+        runner, q, _, status_repo, _ = _make_runner()
+        q.put(_good_event())
+        q.put(None)
+        runner.run_until_empty()
+
+        # The sentinel is consumed during run_until_empty; depth must be 0.
+        assert status_repo.get_status().queue_depth == 0

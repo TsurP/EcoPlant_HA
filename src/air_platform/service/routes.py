@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from air_platform.config import AppSettings
 from air_platform.ingestion.models import MissingStrategy, ProcessingConfig
@@ -48,9 +48,20 @@ router = APIRouter()
 
 
 @router.get("/health", response_model=HealthResponse)
-def healthcheck() -> HealthResponse:
-    """Simple health endpoint."""
+def healthcheck(request: Request) -> HealthResponse:
+    """Simple health endpoint.
 
+    Returns ``status: degraded`` with ``producer_ok: false`` when a wired-in
+    SensorEventProducer has crashed, allowing callers to detect a dead stream
+    even though the API process itself is still running.
+    """
+    producer = getattr(request.app.state, "producer", None)
+    if producer is not None and producer.error is not None:
+        return HealthResponse(
+            status="degraded",
+            producer_ok=False,
+            producer_error=str(producer.error),
+        )
     return HealthResponse()
 
 
@@ -104,6 +115,9 @@ def get_metrics(
     service: StationProcessingService = Depends(get_processing_service),
 ) -> list[MetricResponse]:
     """Retrieve previously computed metrics with optional filters."""
+
+    if start_time is not None and end_time is not None and start_time >= end_time:
+        raise HTTPException(status_code=422, detail="start_time must be strictly before end_time")
 
     query = MetricQuery(
         station_id=station_id,

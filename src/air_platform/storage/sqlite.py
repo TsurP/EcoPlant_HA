@@ -134,9 +134,9 @@ class SQLiteMetricResultRepository:
                 metric_name=str(row["metric_name"]),
                 metric_value=float(row["metric_value"]),
                 unit=str(row["unit"]),
-                window_start=datetime.fromisoformat(str(row["window_start"])),
-                window_end=datetime.fromisoformat(str(row["window_end"])),
-                computed_at=datetime.fromisoformat(str(row["computed_at"])),
+                window_start=datetime.fromisoformat(str(row["window_start"])).replace(tzinfo=UTC),
+                window_end=datetime.fromisoformat(str(row["window_end"])).replace(tzinfo=UTC),
+                computed_at=datetime.fromisoformat(str(row["computed_at"])).replace(tzinfo=UTC),
                 resample_frequency=str(row["resample_frequency"]),
                 missing_strategy=str(row["missing_strategy"]),
             )
@@ -167,14 +167,26 @@ class SQLiteMetricResultRepository:
                 )
             )
         """
-        index_statement = """
-            CREATE INDEX IF NOT EXISTS idx_metric_results_filters
-            ON metric_results (station_id, device_id, metric_name, window_start, window_end)
+        # Primary access pattern: station + optional time bounds (overlap predicate).
+        # Putting window columns before device/metric lets SQLite use the index for
+        # range scans instead of stopping at the station_id prefix.
+        index_time = """
+            CREATE INDEX IF NOT EXISTS idx_metric_results_station_time
+            ON metric_results (station_id, window_start, window_end)
+        """
+        # Secondary index for exact device/metric lookups within a station.
+        index_device_metric = """
+            CREATE INDEX IF NOT EXISTS idx_metric_results_device_metric
+            ON metric_results (station_id, device_id, metric_name)
         """
         try:
             with sqlite3.connect(self.db_path) as connection:
                 connection.execute(statement)
-                connection.execute(index_statement)
+                # Drop the old index whose column order was misaligned with the
+                # common query shape (device_id/metric_name before window columns).
+                connection.execute("DROP INDEX IF EXISTS idx_metric_results_filters")
+                connection.execute(index_time)
+                connection.execute(index_device_metric)
                 connection.commit()
         except sqlite3.Error as exc:
             raise StorageError("Failed to initialize metrics storage") from exc

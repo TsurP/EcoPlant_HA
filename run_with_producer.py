@@ -24,25 +24,37 @@ from air_platform.config import AppSettings
 from air_platform.service.app import create_app
 from producer import SensorEventProducer
 
-# ---------------------------------------------------------------------------
-# 1. Create the shared queue — both producer and consumer use this instance.
-# ---------------------------------------------------------------------------
-shared_queue: queue.Queue[dict[str, Any] | None] = queue.Queue()
 
-# ---------------------------------------------------------------------------
-# 2. Start the producer in a background daemon thread.
-# ---------------------------------------------------------------------------
-settings = AppSettings()
-producer = SensorEventProducer(
-    db_path=str(settings.sensor_db_path),
-    event_queue=shared_queue,
-)
-producer.start()
+def main() -> None:
+    """Wire queue + producer + app and start the server.
 
-# ---------------------------------------------------------------------------
-# 3. Build the FastAPI app, injecting the shared queue into the container.
-# ---------------------------------------------------------------------------
-app = create_app(settings=settings, event_queue=shared_queue)
+    All setup is deferred to this function so that merely *importing* this
+    module does not start threads, open database connections, or build the
+    FastAPI app — avoiding surprises in reloaders, test collectors, and
+    accidental imports.
+    """
+    settings = AppSettings()
+
+    # 1. Create the shared queue — both producer and consumer use this instance.
+    #    Bounded by consumer_queue_maxsize to apply backpressure if the consumer lags.
+    shared_queue: queue.Queue[dict[str, Any] | None] = queue.Queue(
+        maxsize=settings.consumer_queue_maxsize
+    )
+
+    # 2. Start the producer in a background daemon thread.
+    producer = SensorEventProducer(
+        db_path=str(settings.sensor_db_path),
+        event_queue=shared_queue,
+    )
+    producer.start()
+
+    # 3. Build the FastAPI app, injecting the shared queue into the container.
+    app = create_app(settings=settings, event_queue=shared_queue)
+    # Expose the producer on app.state so /health can surface stream failures.
+    app.state.producer = producer
+
+    uvicorn.run(app, host="127.0.0.1", port=8000)
+
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    main()
